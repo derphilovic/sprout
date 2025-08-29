@@ -1,8 +1,5 @@
 int i = 4
 str txt = John
-i = i + 4
-
-if (i = 8)
-{
+print : i
 print : txt
-}
+print : Hello World
