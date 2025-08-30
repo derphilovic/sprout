@@ -87,16 +87,30 @@ elements = {'int' : integ,
             'str' : string,
             'print' : mprint}
 
-# loading code
-file = input("Document to open: ")
-with open(file, "r", encoding="utf-8") as program:
-    for line in program:
-        for key in elements:
-            if line.startswith(key):
-                elements[key](line[len(key):].strip())
-        # handle assignments like i = i + 4
-        if "=" in line and not line.startswith(("int", "str")):
-            varName, expr = line.split("=", 1)
-            varName = varName.strip()
-            expr = expr.strip()
-            cVar[varName] = math(expr)
+# load Sprout program
+file = "test.spt" #input("Document to open: ") 
+
+try:
+    with open(file, "r", encoding="utf-8") as program:
+        for raw_line in program:
+            line = raw_line.strip()
+            
+            # skip empty lines or comments (start with #)
+            if not line or line.startswith("//"):
+                continue
+            
+            # keyword handling
+            for key in elements:
+                if line.startswith(key):
+                    elements[key](line[len(key):].strip())
+                    break  # don’t double match
+            
+            # assignments (not declarations)
+            if "=" in line and not line.startswith(("int", "str")):
+                varName, expr = line.split("=", 1)
+                varName = varName.strip()
+                expr = expr.strip()
+                cVar[varName] = math(expr)
+
+except FileNotFoundError:
+    print(f"Error: File '{file}' not found.")

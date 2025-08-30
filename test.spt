@@ -1,5 +1,10 @@
-int i = 4
-str txt = John
-print : i
-print : txt
-print : Hello World
+//first test program in sprout
+int a = 10
+int b = 2
+a = a + b
+b = a * 3
+a = b - 4
+b = b / 2
+
+print : a
+print : b
