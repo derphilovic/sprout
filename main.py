@@ -8,7 +8,10 @@ cVar = {'i': 'HALP'}
 def integ(value):
     if " = " in value:
         name, val = value.split(" = ", 1)
-        cVar[str(name)] = int(val)
+        if "." in value:
+            cVar[str(name)] = float(val)
+        else:
+            cVar[str(name)] = int(val)
 
 #string module
 def string(value):
@@ -25,21 +28,75 @@ def mprint(value):
     else :
         print(value)         
 
+#math module
+def math(expr):
+    # remove spaces
+    expr = expr.replace(" ", "")
+    
+    # Addition
+    if "+" in expr:
+        parts = expr.split("+")
+        total = 0
+        for p in parts:
+            if p in cVar:
+                total += float(cVar[p])
+            else:
+                total += float(p)
+        return total
+    
+    # Subtraction
+    if "-" in expr:
+        parts = expr.split("-")
+        total = float(cVar.get(parts[0], parts[0]))  # first term
+        for p in parts[1:]:
+            if p in cVar:
+                total -= float(cVar[p])
+            else:
+                total -= float(p)
+        return total
+    
+    # Multiplication
+    if "*" in expr:
+        parts = expr.split("*")
+        total = 1
+        for p in parts:
+            if p in cVar:
+                total *= float(cVar[p])
+            else:
+                total *= float(p)
+        return total
+    
+    # Division
+    if "/" in expr:
+        parts = expr.split("/")
+        total = float(cVar.get(parts[0], parts[0]))
+        for p in parts[1:]:
+            if p in cVar:
+                total /= float(cVar[p])
+            else:
+                total /= float(p)
+        return total
+
+    # If it's just a number or variable
+    if expr in cVar:
+        return float(cVar[expr])
+    return float(expr)
+
 #module mapping
 elements = {'int' : integ,
             'str' : string,
             'print' : mprint}
 
-# example program
-program = [
-    "int i = 4",
-    "str txt = John",
-    "print : i",
-    "print : txt",
-    "print : Hello World"
-]
-
-for line in program:
-    for key in elements:
-        if line.startswith(key):
-            elements[key](line[len(key):].strip())
+# loading code
+file = input("Document to open: ")
+with open(file, "r", encoding="utf-8") as program:
+    for line in program:
+        for key in elements:
+            if line.startswith(key):
+                elements[key](line[len(key):].strip())
+        # handle assignments like i = i + 4
+        if "=" in line and not line.startswith(("int", "str")):
+            varName, expr = line.split("=", 1)
+            varName = varName.strip()
+            expr = expr.strip()
+            cVar[varName] = math(expr)
