@@ -2,7 +2,7 @@
 import os
 
 #startup variables
-cVar = {'i': 'HALP'}
+cVar = {}
 #functions
 #integer module
 def integ(value):
@@ -109,10 +109,30 @@ def stringcomb(expr):
         return str(cVar[expr])
     return str(expr)
 
+
+#input module
+def minput(value):
+    value = value.removeprefix(":").strip()
+    if "," in value:
+        var, quest = value.split(",", 1)
+        var = var.strip()
+        quest = quest.strip()
+        answer = input(f"{quest} ")
+        if isinstance(cVar[var], (int, float)):
+            answer = float(answer)
+
+        if var in cVar:
+            cVar[var] = answer
+        else:
+            # default new input as string
+            cVar[var] = answer
+
+
 #module mapping
 elements = {'int' : integ,
             'str' : string,
-            'print' : mprint}
+            'print' : mprint,
+            'input' : minput}
 
 # load Sprout program
 file = "test.spt" #input("Document to open: ") 

@@ -9,8 +9,11 @@ print : a
 print : b
 str msg = "halp"
 str name = "James"
-int age = 42
+int age = 0
+input : age, What is your age?
 
 msg = msg + " " + name + " is " + age
 
 print : msg
+
+print : i like apple
