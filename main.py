@@ -17,7 +17,12 @@ def integ(value):
 def string(value):
     if " = " in value:
         name, val = value.split(" = ", 1)
-        cVar[str(name)] = str(val)
+        val = val.strip()
+        # remove wrapping quotes if present
+        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+            val = val[1:-1]
+        cVar[name.strip()] = str(val)
+
 
 #print module
 def mprint(value):
@@ -82,6 +87,28 @@ def math(expr):
         return float(cVar[expr])
     return float(expr)
 
+#string combination
+def stringcomb(expr):
+    expr = expr.strip()
+    
+    if "+" in expr:
+        parts = expr.split("+")
+        total = ""
+        for p in parts:
+            p = p.strip()
+            if p in cVar:  # variable
+                total += str(cVar[p])
+            else:
+                # remove wrapping quotes if present
+                if (p.startswith('"') and p.endswith('"')) or (p.startswith("'") and p.endswith("'")):
+                    p = p[1:-1]
+                total += str(p)
+        return total
+    
+    if expr in cVar:
+        return str(cVar[expr])
+    return str(expr)
+
 #module mapping
 elements = {'int' : integ,
             'str' : string,
@@ -110,7 +137,11 @@ try:
                 varName, expr = line.split("=", 1)
                 varName = varName.strip()
                 expr = expr.strip()
-                cVar[varName] = math(expr)
+                if isinstance(cVar[varName], (int, float)):
+                    cVar[varName] = math(expr)
+                else:
+                    cVar[varName] = stringcomb(expr)
+
 
 except FileNotFoundError:
     print(f"Error: File '{file}' not found.")
