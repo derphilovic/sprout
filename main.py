@@ -109,6 +109,47 @@ def stringcomb(expr):
         return str(cVar[expr])
     return str(expr)
 
+#evaluate state of if statement
+def evaluate_condition(cond: str) -> bool:
+    cond = cond.strip()
+
+    # supported operators in order of precedence
+    ops = ["<=", ">=", "==", "!=", "<", ">"]
+
+    for op in ops:
+        if op in cond:
+            left, right = cond.split(op, 1)
+            left = left.strip()
+            right = right.strip()
+
+            # resolve variables
+            if left in cVar:
+                left = cVar[left]
+            if right in cVar:
+                right = cVar[right]
+
+            # try numeric conversion
+            try:
+                left = float(left)
+                right = float(right)
+            except:
+                # keep as string if not numbers
+                left = str(left)
+                right = str(right)
+
+            # comparisons
+            if op == "<":  return left < right
+            if op == ">":  return left > right
+            if op == "<=": return left <= right
+            if op == ">=": return left >= right
+            if op == "==": return left == right
+            if op == "!=": return left != right
+
+    # no operator found → default False
+    return False
+
+
+
 
 #input module
 def minput(value):
@@ -136,32 +177,71 @@ elements = {'int' : integ,
 
 # load Sprout program
 file = "test.spt" #input("Document to open: ") 
+in_if_block = False
+run_block = False
+skip_until_end = False
 
 try:
     with open(file, "r", encoding="utf-8") as program:
         for raw_line in program:
             line = raw_line.strip()
-            
-            # skip empty lines or comments (start with #)
+
             if not line or line.startswith("//"):
                 continue
-            
-            # keyword handling
-            for key in elements:
-                if line.startswith(key):
-                    elements[key](line[len(key):].strip())
-                    break  # don’t double match
-            
-            # assignments (not declarations)
-            if "=" in line and not line.startswith(("int", "str")):
-                varName, expr = line.split("=", 1)
-                varName = varName.strip()
-                expr = expr.strip()
-                if isinstance(cVar[varName], (int, float)):
-                    cVar[varName] = math(expr)
-                else:
-                    cVar[varName] = stringcomb(expr)
 
+            # IF
+            if line.startswith("if "):
+                cond = line[line.find("(")+1 : line.find(")")]
+                result = evaluate_condition(cond)
+                in_if_block = True
+                run_block = result
+                skip_until_end = not result
+                continue
+
+            # ELIF
+            if line.startswith("elif "):
+                if in_if_block:
+                    cond = line[line.find("(")+1 : line.find(")")]
+                    result = evaluate_condition(cond)
+                    if not run_block and result:  # only run if previous didn't run
+                        run_block = True
+                        skip_until_end = False
+                    else:
+                        skip_until_end = True
+                continue
+
+            # ELSE
+            if line.startswith("else"):
+                if in_if_block:
+                    if not run_block:  # only run if nothing before was true
+                        run_block = True
+                        skip_until_end = False
+                    else:
+                        skip_until_end = True
+                continue
+
+            # END of block
+            if line == ";":
+                in_if_block = False
+                run_block = False
+                skip_until_end = False
+                continue
+
+            # Normal statement
+            if not skip_until_end:
+                # existing keyword handling (int, str, print, input, etc.)
+                for key in elements:
+                    if line.startswith(key):
+                        elements[key](line[len(key):].strip())
+                        break
+                if "=" in line and not line.startswith(("int", "str")):
+                    varName, expr = line.split("=", 1)
+                    varName = varName.strip()
+                    expr = expr.strip()
+                    if isinstance(cVar[varName], (int, float)):
+                        cVar[varName] = math(expr)
+                    else:
+                        cVar[varName] = stringcomb(expr)
 
 except FileNotFoundError:
     print(f"Error: File '{file}' not found.")
