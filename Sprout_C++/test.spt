@@ -1,0 +1,25 @@
+//first test program in sprout
+int a = 10
+int b = 2
+a = a + b
+b = a * 3
+a = b - 4
+b = b / 2
+print : a
+print : b
+str msg = "halp"
+str name = "James"
+int age = 0
+input : age, What is your age?
+
+msg = msg + " " + name + " is " + age
+
+print : msg
+
+print : i like apple
+
+if (a < 10):
+print : a is smaller than 10
+elif (a > 10):
+print : a is greater than 10
+;
