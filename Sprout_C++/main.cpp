@@ -2,18 +2,35 @@
 #include <string>
 #include <vector>
 #include <cctype>
+#include <memory>
+#include <variant>
+#include <sstream>
+#include <fstream>
+#include <filesystem>
+
 using namespace std;
 
 // All possible token types in Sprout
 enum class TokenType {
-    INT, STR, PRINT, INPUT, IF, ELSE,   // keywords
-    IDENT, NUMBER, STRING,              // identifiers and literals
-    PLUS, MINUS, STAR, SLASH, EQUAL,    // operators
-    LPAREN, RPAREN, LBRACE, RBRACE,     // symbols ( )
-    COLON, SEMICOLON,                   // : and ;
-    END_OF_FILE,
-    UNKNOWN
+    // Keywords
+    INT, STR, PRINT, INPUT, IF, ELSE,
+
+    // Identifiers / literals
+    IDENT, NUMBER, STRING,
+
+    // Symbols
+    PLUS, MINUS, STAR, SLASH,
+    EQ,             // "=" (you called it EQUAL before, unify it!)
+    LPAREN, RPAREN, // ( )
+    LBRACE, RBRACE, // { }
+    COMMA, SEMICOLON,
+    COLON,          // ":" (needed for print : and input :)
+    UNKNOWN,        // fallback for unexpected chars
+
+    // End of file
+    END_OF_FILE
 };
+
 
 // A single token: type + text + (optional) line number
 struct Token {
@@ -60,7 +77,15 @@ private:
 
     // Skip spaces and comments
     void skipWhitespace() {
-        while (isspace(peek())) advance();
+        while (true) {
+            while (isspace(peek())) advance();
+            // handle // comments
+            if (peek() == '/' && (pos + 1) < src.size() && src[pos + 1] == '/') {
+                while (peek() != '\n' && peek() != '\0') advance();
+                continue;
+            }
+            break;
+        }
     }
 
     // Core: get the next token
@@ -105,12 +130,13 @@ private:
             case '-': return makeToken(TokenType::MINUS, "-");
             case '*': return makeToken(TokenType::STAR, "*");
             case '/': return makeToken(TokenType::SLASH, "/");
-            case '=': return makeToken(TokenType::EQUAL, "=");
+            case '=': return makeToken(TokenType::EQ, "=");
             case '(': return makeToken(TokenType::LPAREN, "(");
             case ')': return makeToken(TokenType::RPAREN, ")");
             case '{': return makeToken(TokenType::LBRACE, "{");
             case '}': return makeToken(TokenType::RBRACE, "}");
             case ':': return makeToken(TokenType::COLON, ":");
+            case ',': return makeToken(TokenType::COMMA, ",");
             case ';': return makeToken(TokenType::SEMICOLON, ";");
         }
 
@@ -121,3 +147,439 @@ private:
         return Token{type, text, line};
     }
 };
+
+#include <memory>
+#include <variant>
+#include <vector>
+using namespace std;
+
+// Forward declarations
+struct Expr;
+struct Stmt;
+
+using ExprPtr = shared_ptr<Expr>;
+using StmtPtr = shared_ptr<Stmt>;
+
+/* =====================
+   EXPRESSIONS (things that produce values)
+   ===================== */
+struct Expr {
+    virtual ~Expr() = default;
+};
+
+struct NumberExpr : Expr {
+    double value;
+    NumberExpr(double v) : value(v) {}
+};
+
+struct StringExpr : Expr {
+    string value;
+    StringExpr(string v) : value(move(v)) {}
+};
+
+struct VarExpr : Expr {
+    string name;
+    VarExpr(string n) : name(move(n)) {}
+};
+
+struct BinaryExpr : Expr {
+    string op;       // "+", "-", "*", "/", "="
+    ExprPtr left;
+    ExprPtr right;
+    BinaryExpr(string o, ExprPtr l, ExprPtr r)
+        : op(move(o)), left(move(l)), right(move(r)) {}
+};
+
+/* =====================
+   STATEMENTS (things that *do* stuff)
+   ===================== */
+struct Stmt {
+    virtual ~Stmt() = default;
+};
+
+struct DeclStmt : Stmt {
+    string type;  // "int" or "str"
+    string name;
+    ExprPtr init;
+    DeclStmt(string t, string n, ExprPtr e)
+        : type(move(t)), name(move(n)), init(move(e)) {}
+};
+
+struct AssignStmt : Stmt {
+    string name;
+    ExprPtr expr;
+    AssignStmt(string n, ExprPtr e)
+        : name(move(n)), expr(move(e)) {}
+};
+
+struct PrintStmt : Stmt {
+    ExprPtr expr;
+    PrintStmt(ExprPtr e) : expr(move(e)) {}
+};
+
+struct InputStmt : Stmt {
+    string name;
+    string question;
+    InputStmt(string n, string q)
+        : name(move(n)), question(move(q)) {}
+};
+
+struct IfStmt : Stmt {
+    vector<pair<ExprPtr, vector<StmtPtr>>> branches;
+    // each pair = condition + body
+    // if condition == nullptr → else branch
+};
+class Parser {
+    vector<Token> tokens;
+    size_t pos;
+
+public:
+    Parser(vector<Token> t) : tokens(move(t)), pos(0) {}
+
+    vector<StmtPtr> parseProgram() {
+        vector<StmtPtr> stmts;
+        while (!isAtEnd()) {
+            size_t before = pos;
+            StmtPtr s = parseStmt();
+            if (!s) break;
+            stmts.push_back(s);
+            // Safety: ensure progress to avoid infinite loop
+            if (pos == before) break;
+        }
+        // consume a single EOF if present
+        if (!tokens.empty() && pos < tokens.size() && tokens[pos].type == TokenType::END_OF_FILE) {
+            ++pos;
+        }
+        return stmts;
+    }
+
+private:
+    // === Utility ===
+    Token& peek() {
+        static Token eofToken{TokenType::END_OF_FILE, "", 0};
+        if (pos >= tokens.size()) return eofToken;
+        return tokens[pos];
+    }
+    bool match(TokenType type) {
+        if (check(type)) { ++pos; return true; }
+        return false;
+    }
+    Token& advance() {
+        static Token eofToken{TokenType::END_OF_FILE, "", 0};
+        if (pos >= tokens.size()) return eofToken;
+        return tokens[pos++];
+    }
+    bool check(TokenType type) {
+        if (isAtEnd()) return type == TokenType::END_OF_FILE;
+        return peek().type == type;
+    }
+    bool isAtEnd() {
+        return pos >= tokens.size() || tokens[pos].type == TokenType::END_OF_FILE;
+    }
+
+    // === Parsing ===
+    StmtPtr parseStmt() {
+        if (match(TokenType::INT))   return parseDecl("int");
+        if (match(TokenType::STR))   return parseDecl("str");
+        if (match(TokenType::PRINT)) return parsePrint();
+        if (match(TokenType::INPUT)) return parseInput();
+        if (match(TokenType::IF))    return parseIf();
+
+        // Otherwise → assignment
+        return parseAssign();
+    }
+
+    StmtPtr parseDecl(string type) {
+        Token name = advance(); // variable name
+        match(TokenType::EQ);
+        ExprPtr expr = parseExpr();
+        return make_shared<DeclStmt>(type, name.text, expr);
+    }
+
+    StmtPtr parseAssign() {
+        Token name = advance(); // variable name
+        match(TokenType::EQ);
+        ExprPtr expr = parseExpr();
+        return make_shared<AssignStmt>(name.text, expr);
+    }
+
+    StmtPtr parsePrint() {
+        match(TokenType::COLON);
+        ExprPtr expr = parseExpr();
+        return make_shared<PrintStmt>(expr);
+    }
+
+    StmtPtr parseInput() {
+        match(TokenType::COLON);
+        Token name = advance(); // variable name
+        match(TokenType::COMMA);
+        Token question = advance(); // string literal
+        return make_shared<InputStmt>(name.text, question.text);
+    }
+
+    StmtPtr parseIf() {
+        vector<pair<ExprPtr, vector<StmtPtr>>> branches;
+
+        // if (...)
+        match(TokenType::LPAREN);
+        ExprPtr cond = parseExpr();
+        match(TokenType::RPAREN);
+        match(TokenType::COLON);
+        vector<StmtPtr> body;
+        while (!check(TokenType::SEMICOLON) &&
+               !check(TokenType::ELSE) &&
+               !check(TokenType::END_OF_FILE)) {
+            body.push_back(parseStmt());
+        }
+        branches.push_back({cond, body});
+
+        // optional else
+        if (match(TokenType::ELSE)) {
+            match(TokenType::COLON);
+            vector<StmtPtr> elseBody;
+            while (!check(TokenType::SEMICOLON) && !check(TokenType::END_OF_FILE)) {
+                elseBody.push_back(parseStmt());
+            }
+            branches.push_back({nullptr, elseBody});
+        }
+
+        // consume trailing ';' if present to end the if/else block
+        match(TokenType::SEMICOLON);
+
+        auto node = make_shared<IfStmt>();
+        node->branches = move(branches);
+        return node;
+    }
+
+    // === Expressions ===
+    ExprPtr parseExpr() {
+        // For now → only handle simple binary expr: a + b, numbers, strings
+        return parseTerm();
+    }
+
+    ExprPtr parseTerm() {
+        // TODO: implement real precedence (for now, just one level)
+        Token tok = advance();
+        if (tok.type == TokenType::NUMBER)
+            return make_shared<NumberExpr>(stod(tok.text));
+        if (tok.type == TokenType::STRING)
+            return make_shared<StringExpr>(tok.text);
+        if (tok.type == TokenType::IDENT)
+            return make_shared<VarExpr>(tok.text);
+
+        return nullptr;
+    }
+};
+#include <unordered_map>
+#include <iostream>
+#include <variant>
+
+/* =====================
+   INTERPRETER
+   - walks the AST
+   - keeps variables in memory
+   ===================== */
+
+class Interpreter {
+    // variable storage: name → value
+    // value can be a string or a number
+    unordered_map<string, variant<double,string>> variables;
+
+public:
+    // === Run entire program ===
+    void run(const vector<StmtPtr>& program) {
+        for (auto& stmt : program) {
+            exec(stmt);
+        }
+    }
+
+private:
+    // === Statement Execution ===
+    void exec(const StmtPtr& stmt) {
+        if (auto d = dynamic_pointer_cast<DeclStmt>(stmt)) {
+            execDecl(d);
+        }
+        else if (auto a = dynamic_pointer_cast<AssignStmt>(stmt)) {
+            execAssign(a);
+        }
+        else if (auto p = dynamic_pointer_cast<PrintStmt>(stmt)) {
+            execPrint(p);
+        }
+        else if (auto i = dynamic_pointer_cast<InputStmt>(stmt)) {
+            execInput(i);
+        }
+        else if (auto ifs = dynamic_pointer_cast<IfStmt>(stmt)) {
+            execIf(ifs);
+        }
+    }
+
+    void execDecl(const shared_ptr<DeclStmt>& stmt) {
+        auto val = eval(stmt->init);
+        variables[stmt->name] = val;
+    }
+
+    void execAssign(const shared_ptr<AssignStmt>& stmt) {
+        auto val = eval(stmt->expr);
+        variables[stmt->name] = val;
+    }
+
+    void execPrint(const shared_ptr<PrintStmt>& stmt) {
+        auto val = eval(stmt->expr);
+        if (holds_alternative<double>(val)) {
+            cout << get<double>(val) << "\n";
+        } else {
+            cout << get<string>(val) << "\n";
+        }
+    }
+
+    void execInput(const shared_ptr<InputStmt>& stmt) {
+        cout << stmt->question << " ";
+        string userInput;
+        getline(cin, userInput);
+
+        // If var was declared as number → convert
+        if (variables.find(stmt->name) != variables.end() &&
+            holds_alternative<double>(variables[stmt->name])) {
+            variables[stmt->name] = stod(userInput);
+        } else {
+            variables[stmt->name] = userInput;
+        }
+    }
+
+    void execIf(const shared_ptr<IfStmt>& stmt) {
+        for (auto& branch : stmt->branches) {
+            ExprPtr cond = branch.first;
+            auto& body = branch.second;
+
+            // else branch
+            if (!cond) {
+                for (auto& s : body) exec(s);
+                return;
+            }
+
+            auto condVal = eval(cond);
+            bool truthy = false;
+            if (holds_alternative<double>(condVal)) {
+                truthy = (get<double>(condVal) != 0);
+            } else if (holds_alternative<string>(condVal)) {
+                truthy = !get<string>(condVal).empty();
+            }
+
+            if (truthy) {
+                for (auto& s : body) exec(s);
+                return; // only first true branch executes
+            }
+        }
+    }
+
+    // === Expression Evaluation ===
+    variant<double,string> eval(const ExprPtr& expr) {
+        if (auto n = dynamic_pointer_cast<NumberExpr>(expr)) {
+            return n->value;
+        }
+        if (auto s = dynamic_pointer_cast<StringExpr>(expr)) {
+            return s->value;
+        }
+        if (auto v = dynamic_pointer_cast<VarExpr>(expr)) {
+            return variables[v->name];
+        }
+        if (auto b = dynamic_pointer_cast<BinaryExpr>(expr)) {
+            auto left = eval(b->left);
+            auto right = eval(b->right);
+
+            // arithmetic on numbers
+            if (holds_alternative<double>(left) && holds_alternative<double>(right)) {
+                double l = get<double>(left);
+                double r = get<double>(right);
+                if (b->op == "+") return l + r;
+                if (b->op == "-") return l - r;
+                if (b->op == "*") return l * r;
+                if (b->op == "/") return l / r;
+                if (b->op == "<") return (l < r) ? 1.0 : 0.0;
+                if (b->op == ">") return (l > r) ? 1.0 : 0.0;
+                if (b->op == "==") return (l == r) ? 1.0 : 0.0;
+            }
+
+            // string concatenation with +
+            if (b->op == "+") {
+                string l = toString(left);
+                string r = toString(right);
+                return l + r;
+            }
+        }
+        return 0.0; // fallback
+    }
+
+    string toString(const variant<double,string>& val) {
+        if (holds_alternative<double>(val)) {
+            return to_string(get<double>(val));
+        } else {
+            return get<string>(val);
+        }
+    }
+};
+
+int main(int argc, char* argv[]) {
+    namespace fs = std::filesystem;
+
+    // Collect candidate paths from CLI args; prefer @file:... entries
+    vector<string> candidates;
+    for (int i = 1; i < argc; ++i) {
+        string a = argv[i];
+        if (a.rfind("@file:", 0) == 0) {
+            candidates.push_back(a.substr(6));
+        } else if (!a.empty() && a[0] != '@') {
+            candidates.push_back(a);
+        }
+        // ignore markers like @thisFile
+    }
+    // Default fallbacks if nothing provided or none valid
+    if (candidates.empty()) {
+        candidates.push_back("test.spt");
+        candidates.push_back("sprout/Sprout_C++/test.spt");
+    }
+
+    auto resolveUpwards = [](const string& rel) -> string {
+        namespace fs = std::filesystem;
+        // Try relative to current working directory and walk up
+        fs::path cwd = fs::current_path();
+        for (int i = 0; i < 10; ++i) {
+            fs::path candidate = cwd / rel;
+            if (fs::exists(candidate)) return candidate.string();
+            if (!cwd.has_parent_path()) break;
+            cwd = cwd.parent_path();
+        }
+        return rel;
+    };
+
+    ifstream in;
+    string openedPath;
+    for (const auto& cand : candidates) {
+        string path = resolveUpwards(cand);
+        in.open(path);
+        if (in) { openedPath = path; break; }
+        in.clear();
+    }
+
+    if (!in) {
+        cerr << "Failed to open file. Tried:";
+        for (const auto& c : candidates) cerr << " " << c;
+        cerr << "\n";
+        return 1;
+    }
+
+    stringstream buffer;
+    buffer << in.rdbuf();
+    string source = buffer.str();
+
+    Lexer lexer(source);
+    vector<Token> tokens = lexer.tokenize();
+
+    Parser parser(tokens);
+    vector<StmtPtr> program = parser.parseProgram();
+
+    Interpreter interpreter;
+    interpreter.run(program);
+
+    return 0;
+}
