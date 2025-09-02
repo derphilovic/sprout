@@ -20,7 +20,11 @@ enum class TokenType {
 
     // Symbols
     PLUS, MINUS, STAR, SLASH,
-    EQ,             // "=" (you called it EQUAL before, unify it!)
+    EQ,             // "=" (assignment)
+    EQEQ,           // "==" (equality)
+    NE,             // "!=" (not equal)
+    LT, GT,         // "<", ">"
+    LE, GE,         // "<=", ">="
     LPAREN, RPAREN, // ( )
     LBRACE, RBRACE, // { }
     COMMA, SEMICOLON,
@@ -124,13 +128,35 @@ private:
             return makeToken(TokenType::STRING, value);
         }
 
-        // Operators and symbols
+        // Two-character and single-character operators/symbols
+        // Handle multi-char first: ==, !=, <=, >=
+        if (c == '=') {
+            advance();
+            if (peek() == '=') { advance(); return makeToken(TokenType::EQEQ, "=="); }
+            return makeToken(TokenType::EQ, "=");
+        }
+        if (c == '!') {
+            advance();
+            if (peek() == '=') { advance(); return makeToken(TokenType::NE, "!="); }
+            return makeToken(TokenType::UNKNOWN, "!");
+        }
+        if (c == '<') {
+            advance();
+            if (peek() == '=') { advance(); return makeToken(TokenType::LE, "<="); }
+            return makeToken(TokenType::LT, "<");
+        }
+        if (c == '>') {
+            advance();
+            if (peek() == '=') { advance(); return makeToken(TokenType::GE, ">="); }
+            return makeToken(TokenType::GT, ">");
+        }
+
+        // Single-character tokens
         switch (advance()) {
             case '+': return makeToken(TokenType::PLUS, "+");
             case '-': return makeToken(TokenType::MINUS, "-");
             case '*': return makeToken(TokenType::STAR, "*");
             case '/': return makeToken(TokenType::SLASH, "/");
-            case '=': return makeToken(TokenType::EQ, "=");
             case '(': return makeToken(TokenType::LPAREN, "(");
             case ')': return makeToken(TokenType::RPAREN, ")");
             case '{': return makeToken(TokenType::LBRACE, "{");
@@ -333,6 +359,9 @@ private:
                }
         branches.push_back({cond, body});
 
+        // consume optional ';' that terminates the if-body
+        match(TokenType::SEMICOLON);
+
         // optional else
         if (match(TokenType::ELSE)) {
             match(TokenType::COLON);
@@ -341,10 +370,10 @@ private:
                 elseBody.push_back(parseStmt());
             }
             branches.push_back({nullptr, elseBody});
-        }
 
-        // consume trailing ';' if present to end the if/else block
-        match(TokenType::SEMICOLON);
+            // consume optional ';' that terminates the else-body
+            match(TokenType::SEMICOLON);
+        }
 
         auto node = make_shared<IfStmt>();
         node->branches = move(branches);
@@ -353,7 +382,29 @@ private:
 
     // === Expressions ===
     ExprPtr parseExpr() {
-        return parseAddSub();
+        return parseEquality();
+    }
+
+    // equality -> comparison ( (== | !=) comparison )*
+    ExprPtr parseEquality() {
+        ExprPtr left = parseComparison();
+        while (match(TokenType::EQEQ) || match(TokenType::NE)) {
+            Token op = tokens[pos - 1];
+            ExprPtr right = parseComparison();
+            left = make_shared<BinaryExpr>(op.text, left, right);
+        }
+        return left;
+    }
+
+    // comparison -> addSub ( (< | > | <= | >=) addSub )*
+    ExprPtr parseComparison() {
+        ExprPtr left = parseAddSub();
+        while (match(TokenType::LT) || match(TokenType::GT) || match(TokenType::LE) || match(TokenType::GE)) {
+            Token op = tokens[pos - 1];
+            ExprPtr right = parseAddSub();
+            left = make_shared<BinaryExpr>(op.text, left, right);
+        }
+        return left;
     }
 
     ExprPtr parseAddSub() {
@@ -466,9 +517,9 @@ private:
         if (variables.find(stmt->name) != variables.end() &&
             holds_alternative<double>(variables[stmt->name])) {
             variables[stmt->name] = stod(userInput);
-        } else {
-            variables[stmt->name] = userInput;
-        }
+            } else {
+                variables[stmt->name] = userInput;
+            }
     }
 
     void execIf(const shared_ptr<IfStmt>& stmt) {
@@ -476,10 +527,9 @@ private:
             ExprPtr cond = branch.first;
             auto& body = branch.second;
 
-            // else branch
             if (!cond) {
                 for (auto& s : body) exec(s);
-                return;
+                return; // ✅ make sure to stop after else branch
             }
 
             auto condVal = eval(cond);
@@ -492,10 +542,11 @@ private:
 
             if (truthy) {
                 for (auto& s : body) exec(s);
-                return; // only first true branch executes
+                return; // ✅ stop after first true branch
             }
         }
     }
+
 
     // === Expression Evaluation ===
     variant<double,string> eval(const ExprPtr& expr) {
@@ -523,7 +574,11 @@ private:
                 if (b->op == "<") return (l < r) ? 1.0 : 0.0;
                 if (b->op == ">") return (l > r) ? 1.0 : 0.0;
                 if (b->op == "==") return (l == r) ? 1.0 : 0.0;
+                if (b->op == "<=") return (l <= r) ? 1.0 : 0.0;
+                if (b->op == ">=") return (l >= r) ? 1.0 : 0.0;
+                if (b->op == "!=") return (l != r) ? 1.0 : 0.0;
             }
+
 
             // string concatenation with +
             if (b->op == "+") {
@@ -537,7 +592,11 @@ private:
 
     string toString(const variant<double,string>& val) {
         if (holds_alternative<double>(val)) {
-            return to_string(get<double>(val));
+            double num = get<double>(val);
+            if (num == (int)num) {
+                return to_string((int)num); // no decimals if whole number
+            }
+            return to_string(num);
         } else {
             return get<string>(val);
         }

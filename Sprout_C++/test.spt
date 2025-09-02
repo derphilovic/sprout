@@ -1,6 +1,45 @@
-int a = 0
-int b = 10
-int temp = 0
-input : a, "Number to add to 10: "
-temp = a + b
-output : temp
+// === Sprout Full Test ===
+
+// declare some integers
+int a = 10
+int b = 2
+
+// math operations
+a = a + b      // 12
+b = a * 3      // 36
+a = b - 4      // 32
+b = b / 2      // 18
+
+print : a      // expect 32
+print : b      // expect 18
+
+// declare strings
+str msg = "Hello"
+str name = "Sprout"
+
+// concatenate strings + numbers
+msg = msg + " " + name + " v" + 1
+print : msg    // expect "Hello Sprout v1"
+
+// input example
+str user = "?"
+input : user, "What is your name?"
+print : "Welcome, " + user
+
+int age = 0
+input : age, "How old are you? "
+print : "You are " + age + " years old."
+
+// if / else test
+if (age < 18):
+    print : "You are under 18"
+;
+else:
+    print : "You are an adult"
+;
+
+
+// nested math + string
+int x = 5
+int y = (x + 3) * 2
+print : "Result of (5+3)*2 = " + y
