@@ -1,11 +1,6 @@
-int age = 0
-str name = "Anon"
-print : name
-input : name, "What is your name?"
-print : name
-input : age, "What is your age?"
-if (age):
-print : "Thanks!"
-else:
-print : "Age was zero"
-;
+int a = 0
+int b = 10
+int temp = 0
+input : a, "Number to add to 10: "
+temp = a + b
+output : temp

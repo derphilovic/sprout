@@ -330,7 +330,7 @@ private:
                !check(TokenType::ELSE) &&
                !check(TokenType::END_OF_FILE)) {
             body.push_back(parseStmt());
-        }
+               }
         branches.push_back({cond, body});
 
         // optional else
@@ -353,12 +353,30 @@ private:
 
     // === Expressions ===
     ExprPtr parseExpr() {
-        // For now → only handle simple binary expr: a + b, numbers, strings
-        return parseTerm();
+        return parseAddSub();
+    }
+
+    ExprPtr parseAddSub() {
+        ExprPtr left = parseTerm();
+        while (match(TokenType::PLUS) || match(TokenType::MINUS)) {
+            Token op = tokens[pos - 1];
+            ExprPtr right = parseTerm();
+            left = make_shared<BinaryExpr>(op.text, left, right);
+        }
+        return left;
     }
 
     ExprPtr parseTerm() {
-        // TODO: implement real precedence (for now, just one level)
+        ExprPtr left = parseFactor();
+        while (match(TokenType::STAR) || match(TokenType::SLASH)) {
+            Token op = tokens[pos - 1];
+            ExprPtr right = parseFactor();
+            left = make_shared<BinaryExpr>(op.text, left, right);
+        }
+        return left;
+    }
+
+    ExprPtr parseFactor() {
         Token tok = advance();
         if (tok.type == TokenType::NUMBER)
             return make_shared<NumberExpr>(stod(tok.text));
@@ -366,6 +384,13 @@ private:
             return make_shared<StringExpr>(tok.text);
         if (tok.type == TokenType::IDENT)
             return make_shared<VarExpr>(tok.text);
+
+        // parenthesized expr
+        if (tok.type == TokenType::LPAREN) {
+            ExprPtr expr = parseExpr();
+            match(TokenType::RPAREN);
+            return expr;
+        }
 
         return nullptr;
     }
