@@ -1,6 +1,7 @@
 #import modules
 import os
-
+import math as meth
+import random as rndm
 #startup variables
 cVar = {}
 #functions
@@ -80,6 +81,17 @@ def math(expr):
                 total /= float(cVar[p])
             else:
                 total /= float(p)
+        return total
+    
+    #powers of ...
+    if "^" in expr:
+        parts = expr.split("^")
+        total = float(cVar.get(parts[0], parts[0]))
+        for p in parts[1:]:
+            if p in cVar:
+                total **= float(cVar[p])
+            else:
+                total **= float(p)
         return total
 
     # If it's just a number or variable
@@ -168,12 +180,29 @@ def minput(value):
             # default new input as string
             cVar[var] = answer
 
+#pi module
+def pi(value):
+    value = value.removeprefix(":").strip()
+    temp = meth.pi
+    if value in cVar:
+        cVar[value] = float(temp)
+    
+#meth module
+def rmeth(value):
+    value = value.removeprefix(":").strip()
+    var, range1, range2 = value.split(",")
+    range1, range2 = int(range1), int(range2)
+    temp = rndm.randint(range1, range2)
+    if var in cVar:
+        cVar[var] = float(temp)
 
 #module mapping
 elements = {'int' : integ,
             'str' : string,
             'print' : mprint,
-            'input' : minput}
+            'input' : minput,
+            'pi' : pi,
+             'meth' : rmeth }
 
 # load Sprout program
 file = "test.spt" #input("Document to open: ") 
