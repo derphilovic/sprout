@@ -1,9 +1,16 @@
 //first test program in sprout
+//calculate area of a circle
 int a = 0
 int area = 0
 int rad = 2
 pi : a
-a = a ^ 2
-meth : area, 1, 100
-print : a
+rad = rad ^ 2
+area = a * rad
 print : area
+
+//input testing
+str b = halp
+str c = palp
+input : c, "Halp Me: "
+b = b + c
+print : b
