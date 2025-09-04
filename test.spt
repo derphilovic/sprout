@@ -7,3 +7,4 @@ a = a ^ 2
 meth : area, 1, 100
 print : a
 print : area
+wait : 5

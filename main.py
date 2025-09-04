@@ -2,6 +2,7 @@
 import os
 import math as meth
 import random as rndm
+import time
 #startup variables
 cVar = {}
 #functions
@@ -196,13 +197,20 @@ def rmeth(value):
     if var in cVar:
         cVar[var] = float(temp)
 
+#delay module
+def delay(value):
+    value = value.removeprefix(":").strip()
+    value = float(value)
+    time.sleep(value)
+
 #module mapping
 elements = {'int' : integ,
             'str' : string,
             'print' : mprint,
             'input' : minput,
             'pi' : pi,
-             'meth' : rmeth }
+             'meth' : rmeth,
+              'wait' : delay }
 
 # load Sprout program
 file = "test.spt" #input("Document to open: ") 
