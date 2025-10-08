@@ -13,7 +13,7 @@ using namespace std;
 // All possible token types in Sprout
 enum class TokenType {
     // Keywords
-    INT, STR, PRINT, INPUT, IF, ELSE,
+    INT, STR, PRINT, INPUT, IF, ELSE, JUMP, BREAK,
 
     // Identifiers / literals
     IDENT, NUMBER, STRING,
@@ -109,6 +109,8 @@ private:
             if (word == "input") return makeToken(TokenType::INPUT, word);
             if (word == "if")    return makeToken(TokenType::IF, word);
             if (word == "else")  return makeToken(TokenType::ELSE, word);
+            if (word == "jump") return makeToken(TokenType::JUMP, word);
+            if (word == "break") return makeToken(TokenType::BREAK, word);
             return makeToken(TokenType::IDENT, word);
         }
 
@@ -255,6 +257,14 @@ struct IfStmt : Stmt {
     // each pair = condition + body
     // if condition == nullptr → else branch
 };
+struct JumpStmt : Stmt {
+    int jumpTo;
+    JumpStmt(int j) : jumpTo(j) {}
+};
+
+struct BreakStmt : Stmt {
+    BreakStmt() {}
+};
 class Parser {
     vector<Token> tokens;
     size_t pos;
@@ -310,9 +320,22 @@ private:
         if (match(TokenType::PRINT)) return parsePrint();
         if (match(TokenType::INPUT)) return parseInput();
         if (match(TokenType::IF))    return parseIf();
+        if (match(TokenType::JUMP)) return parseJump();
+        if (match(TokenType::BREAK)) return parseBreak();
 
         // Otherwise → assignment
         return parseAssign();
+    }
+
+    StmtPtr parseJump() {
+        match(TokenType::JUMP);
+        Token tok = advance();
+        return make_shared<JumpStmt>(stoi(tok.text));
+    }
+
+    StmtPtr parseBreak() {
+        match(TokenType::BREAK);
+        return make_shared<BreakStmt>();
     }
 
     StmtPtr parseDecl(string type) {
@@ -487,6 +510,22 @@ private:
         else if (auto ifs = dynamic_pointer_cast<IfStmt>(stmt)) {
             execIf(ifs);
         }
+        else if (auto j = dynamic_pointer_cast<JumpStmt>(stmt)) {
+            execJump(j);
+        }
+        else if (auto b = dynamic_pointer_cast<BreakStmt>(stmt)) {
+            execBreak(b);
+        }
+        else {
+            throw runtime_error("Unknown statement type");
+        }
+    }
+
+    void execJump(const shared_ptr<JumpStmt>& stmt) {
+
+    }
+    void execBreak(const shared_ptr<BreakStmt>& stmt) {
+        exit(0);
     }
 
     void execDecl(const shared_ptr<DeclStmt>& stmt) {

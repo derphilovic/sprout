@@ -33,6 +33,7 @@ print : "You are " + age + " years old."
 // if / else test
 if (age < 18):
     print : "You are under 18"
+    break
 ;
 else:
     print : "You are an adult"
