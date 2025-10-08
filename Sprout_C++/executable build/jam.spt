@@ -48,7 +48,8 @@ print : "Result of (5+3)*2 = " + y
 int i = 0
 print : "While loop test"
 print : i
-if i < 10:
+if i < 10000:
     i = i + 1
     jump 50
 ;
+input : user, "Press enter to exit:"

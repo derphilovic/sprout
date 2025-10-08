@@ -223,48 +223,51 @@ struct BinaryExpr : Expr {
    ===================== */
 struct Stmt {
     virtual ~Stmt() = default;
+    int line; // Add line number tracking
 };
 
+// Update all statement structs to include line number in constructor
 struct DeclStmt : Stmt {
-    string type;  // "int" or "str"
+    string type;
     string name;
     ExprPtr init;
-    DeclStmt(string t, string n, ExprPtr e)
-        : type(move(t)), name(move(n)), init(move(e)) {}
+    DeclStmt(string t, string n, ExprPtr e, int l)
+        : type(move(t)), name(move(n)), init(move(e)) { line = l; }
 };
 
 struct AssignStmt : Stmt {
     string name;
     ExprPtr expr;
-    AssignStmt(string n, ExprPtr e)
-        : name(move(n)), expr(move(e)) {}
+    AssignStmt(string n, ExprPtr e, int l)
+        : name(move(n)), expr(move(e)) { line = l; }
 };
 
 struct PrintStmt : Stmt {
     ExprPtr expr;
-    PrintStmt(ExprPtr e) : expr(move(e)) {}
+    PrintStmt(ExprPtr e, int l) : expr(move(e)) { line = l; }
 };
 
 struct InputStmt : Stmt {
     string name;
     string question;
-    InputStmt(string n, string q)
-        : name(move(n)), question(move(q)) {}
+    InputStmt(string n, string q, int l)
+        : name(move(n)), question(move(q)) { line = l; }
 };
 
 struct IfStmt : Stmt {
     vector<pair<ExprPtr, vector<StmtPtr>>> branches;
-    // each pair = condition + body
-    // if condition == nullptr → else branch
+    IfStmt(int l) { line = l; }
 };
+
 struct JumpStmt : Stmt {
     int jumpTo;
-    JumpStmt(int j) : jumpTo(j) {}
+    JumpStmt(int j, int l) : jumpTo(j) { line = l; }
 };
 
 struct BreakStmt : Stmt {
-    BreakStmt() {}
+    BreakStmt(int l) { line = l; }
 };
+
 class Parser {
     vector<Token> tokens;
     size_t pos;
@@ -320,7 +323,7 @@ private:
         if (match(TokenType::PRINT)) return parsePrint();
         if (match(TokenType::INPUT)) return parseInput();
         if (match(TokenType::IF))    return parseIf();
-        if (match(TokenType::JUMP)) return parseJump();
+        if (match(TokenType::JUMP))  return parseJump();
         if (match(TokenType::BREAK)) return parseBreak();
 
         // Otherwise → assignment
@@ -328,45 +331,57 @@ private:
     }
 
     StmtPtr parseJump() {
-        match(TokenType::JUMP);
+        Token jumpTok = tokens[pos-1]; // Get the jump token for line number
+        match(TokenType::COLON);       // Expect colon after 'jump'
         Token tok = advance();
-        return make_shared<JumpStmt>(stoi(tok.text));
+
+        // Verify we have a number token for the line number
+        if (tok.type != TokenType::NUMBER) {
+            throw runtime_error("Expected line number after 'jump :'");
+        }
+
+        return make_shared<JumpStmt>(stoi(tok.text), jumpTok.line);
     }
 
     StmtPtr parseBreak() {
-        match(TokenType::BREAK);
-        return make_shared<BreakStmt>();
+        Token breakTok = tokens[pos-1]; // Get the break token for line number
+        return make_shared<BreakStmt>(breakTok.line);
     }
 
     StmtPtr parseDecl(string type) {
-        Token name = advance(); // variable name
+        Token typeTok = tokens[pos-1]; // Get type token for line number
+        Token name = advance();
         match(TokenType::EQ);
         ExprPtr expr = parseExpr();
-        return make_shared<DeclStmt>(type, name.text, expr);
+        return make_shared<DeclStmt>(type, name.text, expr, typeTok.line);
     }
 
     StmtPtr parseAssign() {
-        Token name = advance(); // variable name
+        Token nameTok = advance(); // Get name token for line number
         match(TokenType::EQ);
         ExprPtr expr = parseExpr();
-        return make_shared<AssignStmt>(name.text, expr);
+        return make_shared<AssignStmt>(nameTok.text, expr, nameTok.line);
     }
 
     StmtPtr parsePrint() {
+        Token printTok = tokens[pos-1]; // Get print token for line number
         match(TokenType::COLON);
         ExprPtr expr = parseExpr();
-        return make_shared<PrintStmt>(expr);
+        return make_shared<PrintStmt>(expr, printTok.line);
     }
 
     StmtPtr parseInput() {
+        Token inputTok = tokens[pos-1]; // Get input token for line number
         match(TokenType::COLON);
-        Token name = advance(); // variable name
+        Token name = advance();
         match(TokenType::COMMA);
-        Token question = advance(); // string literal
-        return make_shared<InputStmt>(name.text, question.text);
+        Token question = advance();
+        return make_shared<InputStmt>(name.text, question.text, inputTok.line);
     }
 
     StmtPtr parseIf() {
+        Token ifTok = tokens[pos-1]; // Get if token for line number
+        auto node = make_shared<IfStmt>(ifTok.line);
         vector<pair<ExprPtr, vector<StmtPtr>>> branches;
 
         // if (...)
@@ -398,7 +413,6 @@ private:
             match(TokenType::SEMICOLON);
         }
 
-        auto node = make_shared<IfStmt>();
         node->branches = move(branches);
         return node;
     }
@@ -480,52 +494,109 @@ private:
    ===================== */
 
 class Interpreter {
-    // variable storage: name → value
-    // value can be a string or a number
     unordered_map<string, variant<double,string>> variables;
 
 public:
-    // === Run entire program ===
     void run(const vector<StmtPtr>& program) {
-        for (auto& stmt : program) {
-            exec(stmt);
+        // Build line number to statement index mapping
+        unordered_map<int, size_t> lineToIndex;
+        for (size_t i = 0; i < program.size(); i++) {
+            lineToIndex[program[i]->line] = i;
+        }
+
+        size_t currentStmt = 0;
+        while (currentStmt < program.size()) {
+            try {
+                currentStmt = exec(program[currentStmt], program, lineToIndex, currentStmt);
+            } catch (const JumpException& e) {
+                // Handle jump by finding the target line
+                auto it = lineToIndex.find(e.targetLine);
+                if (it != lineToIndex.end()) {
+                    currentStmt = it->second;
+                } else {
+                    cerr << "Error: Cannot jump to line " << e.targetLine << " - line not found\n";
+                    break;
+                }
+            } catch (const BreakException&) {
+                break; // Exit the program
+            }
         }
     }
 
 private:
-    // === Statement Execution ===
-    void exec(const StmtPtr& stmt) {
+    // Exception classes for control flow
+    class JumpException : public exception {
+    public:
+        int targetLine;
+        JumpException(int line) : targetLine(line) {}
+    };
+
+    class BreakException : public exception {};
+
+    // Modified exec to return next statement index
+    size_t exec(const StmtPtr& stmt, const vector<StmtPtr>& program,
+                const unordered_map<int, size_t>& lineToIndex, size_t currentIndex) {
         if (auto d = dynamic_pointer_cast<DeclStmt>(stmt)) {
             execDecl(d);
+            return currentIndex + 1;
         }
         else if (auto a = dynamic_pointer_cast<AssignStmt>(stmt)) {
             execAssign(a);
+            return currentIndex + 1;
         }
         else if (auto p = dynamic_pointer_cast<PrintStmt>(stmt)) {
             execPrint(p);
+            return currentIndex + 1;
         }
         else if (auto i = dynamic_pointer_cast<InputStmt>(stmt)) {
             execInput(i);
+            return currentIndex + 1;
         }
         else if (auto ifs = dynamic_pointer_cast<IfStmt>(stmt)) {
-            execIf(ifs);
+            return execIf(ifs, program, lineToIndex, currentIndex);
         }
         else if (auto j = dynamic_pointer_cast<JumpStmt>(stmt)) {
-            execJump(j);
+            throw JumpException(j->jumpTo);
         }
         else if (auto b = dynamic_pointer_cast<BreakStmt>(stmt)) {
-            execBreak(b);
+            throw BreakException();
         }
         else {
             throw runtime_error("Unknown statement type");
         }
     }
 
-    void execJump(const shared_ptr<JumpStmt>& stmt) {
+    size_t execIf(const shared_ptr<IfStmt>& stmt, const vector<StmtPtr>& program,
+                  const unordered_map<int, size_t>& lineToIndex, size_t currentIndex) {
+        for (auto& branch : stmt->branches) {
+            ExprPtr cond = branch.first;
+            auto& body = branch.second;
 
-    }
-    void execBreak(const shared_ptr<BreakStmt>& stmt) {
-        exit(0);
+            if (!cond) {
+                // Else branch - execute all statements in else body
+                for (auto& s : body) {
+                    currentIndex = exec(s, program, lineToIndex, currentIndex);
+                }
+                return currentIndex + 1;
+            }
+
+            auto condVal = eval(cond);
+            bool truthy = false;
+            if (holds_alternative<double>(condVal)) {
+                truthy = (get<double>(condVal) != 0);
+            } else if (holds_alternative<string>(condVal)) {
+                truthy = !get<string>(condVal).empty();
+            }
+
+            if (truthy) {
+                // Execute all statements in if body
+                for (auto& s : body) {
+                    currentIndex = exec(s, program, lineToIndex, currentIndex);
+                }
+                return currentIndex + 1;
+            }
+        }
+        return currentIndex + 1;
     }
 
     void execDecl(const shared_ptr<DeclStmt>& stmt) {
@@ -559,31 +630,6 @@ private:
             } else {
                 variables[stmt->name] = userInput;
             }
-    }
-
-    void execIf(const shared_ptr<IfStmt>& stmt) {
-        for (auto& branch : stmt->branches) {
-            ExprPtr cond = branch.first;
-            auto& body = branch.second;
-
-            if (!cond) {
-                for (auto& s : body) exec(s);
-                return; // ✅ make sure to stop after else branch
-            }
-
-            auto condVal = eval(cond);
-            bool truthy = false;
-            if (holds_alternative<double>(condVal)) {
-                truthy = (get<double>(condVal) != 0);
-            } else if (holds_alternative<string>(condVal)) {
-                truthy = !get<string>(condVal).empty();
-            }
-
-            if (truthy) {
-                for (auto& s : body) exec(s);
-                return; // ✅ stop after first true branch
-            }
-        }
     }
 
 
