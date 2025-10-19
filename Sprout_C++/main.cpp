@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <cctype>
+#include <random>
 #include <memory>
 #include <variant>
 #include <sstream>
@@ -15,7 +16,7 @@ using namespace std;
 enum class TokenType {
     // Keywords
     INT, STR, FLOAT,
-    PRINT, INPUT, IF, ELSE, JUMP, BREAK,
+    PRINT, INPUT, IF, ELSE, JUMP, BREAK, RANDOM,
 
     // Identifiers / literals
     IDENT, NUMBER, STRING,
@@ -114,6 +115,7 @@ private:
             if (word == "else")  return makeToken(TokenType::ELSE, word);
             if (word == "jump") return makeToken(TokenType::JUMP, word);
             if (word == "break") return makeToken(TokenType::BREAK, word);
+            if (word == "random") return makeToken(TokenType::RANDOM, word);
             return makeToken(TokenType::IDENT, word);
         }
 
@@ -257,6 +259,14 @@ struct InputStmt : Stmt {
         : name(move(n)), question(move(q)) { line = l; }
 };
 
+struct RandomStmt : Stmt {
+    string name;
+    int min;
+    int max;
+    RandomStmt(string n, int m, int M, int l)
+        : name(move(n)), min(m), max(M) { line = l; }
+};
+
 struct IfStmt : Stmt {
     vector<pair<ExprPtr, vector<StmtPtr>>> branches;
     IfStmt(int l) { line = l; }
@@ -321,14 +331,15 @@ private:
 
     // === Parsing ===
     StmtPtr parseStmt() {
-        if (match(TokenType::INT))   return parseDecl("int");
-        if (match(TokenType::STR))   return parseDecl("str");
-        if (match(TokenType::FLOAT)) return parseDecl("float");
-        if (match(TokenType::PRINT)) return parsePrint();
-        if (match(TokenType::INPUT)) return parseInput();
-        if (match(TokenType::IF))    return parseIf();
-        if (match(TokenType::JUMP))  return parseJump();
-        if (match(TokenType::BREAK)) return parseBreak();
+        if (match(TokenType::INT))    return parseDecl("int");
+        if (match(TokenType::STR))    return parseDecl("str");
+        if (match(TokenType::FLOAT))  return parseDecl("float");
+        if (match(TokenType::PRINT))  return parsePrint();
+        if (match(TokenType::INPUT))  return parseInput();
+        if (match(TokenType::IF))     return parseIf();
+        if (match(TokenType::JUMP))   return parseJump();
+        if (match(TokenType::BREAK))  return parseBreak();
+        if (match(TokenType::RANDOM)) return parseRandom();
 
         // Otherwise → assignment
         return parseAssign();
@@ -381,6 +392,17 @@ private:
         match(TokenType::COMMA);
         Token question = advance();
         return make_shared<InputStmt>(name.text, question.text, inputTok.line);
+    }
+
+    StmtPtr parseRandom() {
+        Token randomTok = tokens[pos-1];
+        match(TokenType::COLON);
+        Token name = advance();
+        match(TokenType::COMMA);
+        Token min = advance();
+        match(TokenType::COMMA);
+        Token max = advance();
+        return make_shared<RandomStmt>(name.text, stoi(min.text), stoi(max.text), randomTok.line);
     }
 
     StmtPtr parseIf() {
@@ -563,6 +585,10 @@ private:
         else if (auto b = dynamic_pointer_cast<BreakStmt>(stmt)) {
             throw BreakException();
         }
+        else if (auto r = dynamic_pointer_cast<RandomStmt>(stmt)) {
+            execRandom(r);
+            return currentIndex + 1;
+        }
         else {
             throw runtime_error("Unknown statement type");
         }
@@ -632,6 +658,14 @@ private:
             } else {
                 variables[stmt->name] = userInput;
             }
+    }
+
+    void execRandom(const shared_ptr<RandomStmt>& stmt) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dist(stmt->min, stmt->max);
+        double val = dist(gen);
+        variables[stmt->name] = val;
     }
 
 
