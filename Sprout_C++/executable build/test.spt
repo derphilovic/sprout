@@ -1,7 +1,19 @@
-array myArray = ("Bananas", "Apples", "Oranges")
+array myArray = ("Ten", "Twenty", "Thirty")
+array readcontents = ("")
 print : myArray[0]  // prints 10
 print : myArray[1]  // prints 20
 print : myArray[2]  // prints 30
 
-int x = myArray[1]
-print : x           // prints 20
+int i = 0
+int x = 0
+read : readcontents, "jam.spt"
+
+len : x, readcontents
+
+if i < x:
+print : readcontents[i]
+i = i + 1
+jump : 11
+;
+print : x
+input : x, "exit?"

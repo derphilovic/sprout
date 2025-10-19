@@ -16,7 +16,7 @@ using namespace std;
 enum class TokenType {
     // Keywords
     INT, STR, FLOAT, ARRAY,
-    PRINT, INPUT, IF, ELSE, JUMP, BREAK, RANDOM,
+    PRINT, INPUT, IF, ELSE, JUMP, BREAK, RANDOM, LENGTH,
     READ,
 
     // Identifiers / literals
@@ -120,6 +120,7 @@ private:
             if (word == "break")  return makeToken(TokenType::BREAK, word);
             if (word == "random") return makeToken(TokenType::RANDOM, word);
             if (word == "read")   return makeToken(TokenType::READ, word);
+            if (word == "len") return makeToken(TokenType::LENGTH, word);
             return makeToken(TokenType::IDENT, word);
         }
 
@@ -306,6 +307,18 @@ struct BreakStmt : Stmt {
     BreakStmt(int l) { line = l; }
 };
 
+struct ReadStmt : Stmt {
+    string varName;
+    string fileName;
+    ReadStmt(string v, string f, int l) : varName(move(v)), fileName(move(f)) { line = l; }
+};
+
+struct LengthStmt : Stmt {
+    string varName;
+    string ArrayName;
+    LengthStmt(string v, string a, int l) : varName(move(v)), ArrayName(move(a)) { line = l; }
+};
+
 class Parser {
     vector<Token> tokens;
     size_t pos;
@@ -366,6 +379,8 @@ private:
         if (match(TokenType::JUMP))   return parseJump();
         if (match(TokenType::BREAK))  return parseBreak();
         if (match(TokenType::RANDOM)) return parseRandom();
+        if (match(TokenType::READ))   return parseRead();
+        if (match(TokenType::LENGTH)) return parseLength();
 
         // Otherwise → assignment
         return parseAssign();
@@ -436,6 +451,15 @@ private:
         return make_shared<InputStmt>(name.text, question.text, inputTok.line);
     }
 
+    StmtPtr parseRead() {
+        Token readTok = tokens[pos-1];
+        match(TokenType::COLON);
+        Token varName = advance();
+        match(TokenType::COMMA);
+        Token fileName = advance();
+        return make_shared<ReadStmt>(varName.text, fileName.text, readTok.line);
+    }
+
     StmtPtr parseRandom() {
         Token randomTok = tokens[pos-1];
         match(TokenType::COLON);
@@ -445,6 +469,15 @@ private:
         match(TokenType::COMMA);
         Token max = advance();
         return make_shared<RandomStmt>(name.text, stoi(min.text), stoi(max.text), randomTok.line);
+    }
+
+    StmtPtr parseLength() {
+        Token lengthTok = tokens[pos-1];
+        match(TokenType::COLON);
+        Token varName = advance();
+        match(TokenType::COMMA);
+        Token arrayName = advance();
+        return make_shared<LengthStmt>(varName.text, arrayName.text, lengthTok.line);
     }
 
     StmtPtr parseIf() {
@@ -640,6 +673,14 @@ private:
             execRandom(r);
             return currentIndex + 1;
         }
+        else if (auto rd = dynamic_pointer_cast<ReadStmt>(stmt)) {
+            execRead(rd);
+            return currentIndex + 1;
+        }
+        else if (auto l = dynamic_pointer_cast<LengthStmt>(stmt)) {
+            execLength(l);
+            return currentIndex + 1;
+        }
         else {
             throw runtime_error("Unknown statement type");
         }
@@ -733,6 +774,41 @@ private:
         variables[stmt->name] = val;
     }
 
+    void execRead(const shared_ptr<ReadStmt>& stmt) {
+        ifstream file(stmt->fileName);
+        if (!file.is_open()) {
+            throw runtime_error("Cannot open file " + stmt->fileName);
+        }
+        vector<string> lines;
+        string line;
+        while (getline(file, line)) {
+            lines.push_back(line);
+        }
+        file.close();
+        vector<variant<double, string>> arr;
+        for (auto& l : lines) {
+            arr.push_back(l);
+        }
+        variables[stmt->varName] = arr;
+    }
+
+    void execLength(const shared_ptr<LengthStmt>& stmt) {
+        // Look up the array variable
+        auto it = variables.find(stmt->ArrayName);
+        if (it == variables.end()) {
+            throw runtime_error("Undefined variable: " + stmt->ArrayName);
+        }
+
+        // Make sure it's actually an array
+        if (!holds_alternative<vector<variant<double, string>>>(it->second)) {
+            throw runtime_error("Variable " + stmt->ArrayName + " is not an array");
+        }
+
+        // Get the actual size of the array
+        auto& array = get<vector<variant<double, string>>>(it->second);
+        double len = array.size();
+        variables[stmt->varName] = len;
+    }
 
     // === Expression Evaluation ===
     variant<double, string, vector<variant<double, string>>> eval(const ExprPtr& expr) {
