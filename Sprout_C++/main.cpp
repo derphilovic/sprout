@@ -15,8 +15,9 @@ using namespace std;
 // All possible token types in Sprout
 enum class TokenType {
     // Keywords
-    INT, STR, FLOAT,
+    INT, STR, FLOAT, ARRAY,
     PRINT, INPUT, IF, ELSE, JUMP, BREAK, RANDOM,
+    READ,
 
     // Identifiers / literals
     IDENT, NUMBER, STRING,
@@ -30,6 +31,7 @@ enum class TokenType {
     LE, GE,         // "<=", ">="
     LPAREN, RPAREN, // ( )
     LBRACE, RBRACE, // { }
+    LBRACKET, RBRACKET, // [ ]
     COMMA, SEMICOLON,
     COLON,          // ":" (needed for print : and input :)
     UNKNOWN,        // fallback for unexpected chars
@@ -106,16 +108,18 @@ private:
         if (isalpha(c)) {
             string word;
             while (isalnum(peek())) word += advance();
-            if (word == "int")   return makeToken(TokenType::INT, word);
-            if (word == "str")   return makeToken(TokenType::STR, word);
-            if (word == "float") return makeToken(TokenType::FLOAT, word);
-            if (word == "print") return makeToken(TokenType::PRINT, word);
-            if (word == "input") return makeToken(TokenType::INPUT, word);
-            if (word == "if")    return makeToken(TokenType::IF, word);
-            if (word == "else")  return makeToken(TokenType::ELSE, word);
-            if (word == "jump") return makeToken(TokenType::JUMP, word);
-            if (word == "break") return makeToken(TokenType::BREAK, word);
+            if (word == "int")    return makeToken(TokenType::INT, word);
+            if (word == "str")    return makeToken(TokenType::STR, word);
+            if (word == "float")  return makeToken(TokenType::FLOAT, word);
+            if (word == "array")  return makeToken(TokenType::ARRAY, word);
+            if (word == "print")  return makeToken(TokenType::PRINT, word);
+            if (word == "input")  return makeToken(TokenType::INPUT, word);
+            if (word == "if")     return makeToken(TokenType::IF, word);
+            if (word == "else")   return makeToken(TokenType::ELSE, word);
+            if (word == "jump")   return makeToken(TokenType::JUMP, word);
+            if (word == "break")  return makeToken(TokenType::BREAK, word);
             if (word == "random") return makeToken(TokenType::RANDOM, word);
+            if (word == "read")   return makeToken(TokenType::READ, word);
             return makeToken(TokenType::IDENT, word);
         }
 
@@ -173,6 +177,8 @@ private:
             case ')': return makeToken(TokenType::RPAREN, ")");
             case '{': return makeToken(TokenType::LBRACE, "{");
             case '}': return makeToken(TokenType::RBRACE, "}");
+            case '[': return makeToken(TokenType::LBRACKET, "[");
+            case ']': return makeToken(TokenType::RBRACKET, "]");
             case ':': return makeToken(TokenType::COLON, ":");
             case ',': return makeToken(TokenType::COMMA, ",");
             case ';': return makeToken(TokenType::SEMICOLON, ";");
@@ -210,6 +216,17 @@ struct StringExpr : Expr {
     StringExpr(string v) : value(move(v)) {}
 };
 
+struct ArrayExpr : Expr {
+   vector<ExprPtr> values;
+    ArrayExpr(vector<ExprPtr> v) : values(move(v)) {}
+};
+
+struct ArrayAccessExpr : Expr {
+    string arrayName;
+    ExprPtr index;
+    ArrayAccessExpr(string name, ExprPtr idx) : arrayName(move(name)), index(move(idx)) {}
+};
+
 struct VarExpr : Expr {
     string name;
     VarExpr(string n) : name(move(n)) {}
@@ -238,6 +255,14 @@ struct DeclStmt : Stmt {
     ExprPtr init;
     DeclStmt(string t, string n, ExprPtr e, int l)
         : type(move(t)), name(move(n)), init(move(e)) { line = l; }
+};
+
+struct ArrayDeclStmt : Stmt {
+    string name;
+    vector<ExprPtr> values = vector<ExprPtr>();
+    ExprPtr init;
+    ArrayDeclStmt(string n, ExprPtr e, int l)
+        : name(move(n)), init(move(e)) { line = l; }
 };
 
 struct AssignStmt : Stmt {
@@ -334,6 +359,7 @@ private:
         if (match(TokenType::INT))    return parseDecl("int");
         if (match(TokenType::STR))    return parseDecl("str");
         if (match(TokenType::FLOAT))  return parseDecl("float");
+        if (match(TokenType::ARRAY))  return parseArray();
         if (match(TokenType::PRINT))  return parsePrint();
         if (match(TokenType::INPUT))  return parseInput();
         if (match(TokenType::IF))     return parseIf();
@@ -369,6 +395,22 @@ private:
         match(TokenType::EQ);
         ExprPtr expr = parseExpr();
         return make_shared<DeclStmt>(type, name.text, expr, typeTok.line);
+    }
+
+    StmtPtr parseArray() {
+        Token arrayTok = tokens[pos-1]; // Get array token for line number
+        Token name = advance();
+        match(TokenType::EQ);
+        vector<ExprPtr> values;
+        if (match(TokenType::LPAREN)) {
+            while (!check(TokenType::RPAREN)) {
+                values.push_back(parseExpr());
+                if (!check(TokenType::COMMA)) break;
+                advance();
+            }
+            match(TokenType::RPAREN);
+        }
+        return make_shared<DeclStmt>("array", name.text, make_shared<ArrayExpr>(values), arrayTok.line);
     }
 
     StmtPtr parseAssign() {
@@ -498,8 +540,16 @@ private:
             return make_shared<StringExpr>(tok.text);
         // Do not treat 'float' keyword as a literal
         // if (tok.type == TokenType::FLOAT) ...  // removed
-        if (tok.type == TokenType::IDENT)
-            return make_shared<VarExpr>(tok.text);
+        if (tok.type == TokenType::IDENT) {
+            string name = tok.text;
+            // Check for array access: identifier[index]
+            if (match(TokenType::LBRACKET)) {
+                ExprPtr index = parseExpr();
+                match(TokenType::RBRACKET);
+                return make_shared<ArrayAccessExpr>(name, index);
+            }
+            return make_shared<VarExpr>(name);
+        }
 
         // parenthesized expr
         if (tok.type == TokenType::LPAREN) {
@@ -517,8 +567,9 @@ private:
    - keeps variables in memory
    ===================== */
 
+// Update the variable storage to support arrays
 class Interpreter {
-    unordered_map<string, variant<double,string>> variables;
+    unordered_map<string, variant<double, string, vector<variant<double, string>>>> variables;
 
 public:
     void run(const vector<StmtPtr>& program) {
@@ -643,8 +694,20 @@ private:
         auto val = eval(stmt->expr);
         if (holds_alternative<double>(val)) {
             cout << get<double>(val) << "\n";
-        } else {
+        } else if (holds_alternative<string>(val)) {
             cout << get<string>(val) << "\n";
+        } else if (holds_alternative<vector<variant<double, string>>>(val)) {
+            cout << "[";
+            auto& arr = get<vector<variant<double, string>>>(val);
+            for (size_t i = 0; i < arr.size(); ++i) {
+                if (i > 0) cout << ", ";
+                if (holds_alternative<double>(arr[i])) {
+                    cout << get<double>(arr[i]);
+                } else {
+                    cout << get<string>(arr[i]);
+                }
+            }
+            cout << "]\n";
         }
     }
 
@@ -657,9 +720,9 @@ private:
         if (variables.find(stmt->name) != variables.end() &&
             holds_alternative<double>(variables[stmt->name])) {
             variables[stmt->name] = stod(userInput);
-            } else {
-                variables[stmt->name] = userInput;
-            }
+        } else {
+            variables[stmt->name] = userInput;
+        }
     }
 
     void execRandom(const shared_ptr<RandomStmt>& stmt) {
@@ -672,15 +735,62 @@ private:
 
 
     // === Expression Evaluation ===
-    variant<double,string> eval(const ExprPtr& expr) {
+    variant<double, string, vector<variant<double, string>>> eval(const ExprPtr& expr) {
         if (auto n = dynamic_pointer_cast<NumberExpr>(expr)) {
             return n->value;
         }
         if (auto s = dynamic_pointer_cast<StringExpr>(expr)) {
             return s->value;
         }
-    // Removed FloatExpr branch; NumberExpr already returns double
-    // if (auto f = dynamic_pointer_cast<FloatExpr>(expr)) { ... }
+        if (auto a = dynamic_pointer_cast<ArrayExpr>(expr)) {
+            vector<variant<double, string>> values;
+            for (auto& v : a->values) {
+                auto result = eval(v);
+                if (holds_alternative<double>(result)) {
+                    values.push_back(get<double>(result));
+                } else if (holds_alternative<string>(result)) {
+                    values.push_back(get<string>(result));
+                } else if (holds_alternative<vector<variant<double, string>>>(result)) {
+                    // For nested arrays, we could either flatten them or convert to string
+                    // For simplicity, let's convert nested arrays to string representation
+                    values.push_back(toString(result));
+                }
+            }
+            return values;
+        }
+        if (auto aa = dynamic_pointer_cast<ArrayAccessExpr>(expr)) {
+            // Find the array variable
+            auto it = variables.find(aa->arrayName);
+            if (it == variables.end()) {
+                throw runtime_error("Undefined array: " + aa->arrayName);
+            }
+            
+            // Make sure it's actually an array
+            if (!holds_alternative<vector<variant<double, string>>>(it->second)) {
+                throw runtime_error("Variable " + aa->arrayName + " is not an array");
+            }
+            
+            // Evaluate the index
+            auto indexVal = eval(aa->index);
+            if (!holds_alternative<double>(indexVal)) {
+                throw runtime_error("Array index must be a number");
+            }
+            
+            int index = (int)get<double>(indexVal);
+            auto& array = get<vector<variant<double, string>>>(it->second);
+            
+            // Check bounds
+            if (index < 0 || index >= (int)array.size()) {
+                throw runtime_error("Array index out of bounds: " + to_string(index));
+            }
+            
+            // Return the element (convert single element back to our 3-type variant)
+            if (holds_alternative<double>(array[index])) {
+                return get<double>(array[index]);
+            } else {
+                return get<string>(array[index]);
+            }
+        }
         if (auto v = dynamic_pointer_cast<VarExpr>(expr)) {
             // STRICT LOOKUP: do not default-initialize missing variables
             auto it = variables.find(v->name);
@@ -693,7 +803,7 @@ private:
             auto left = eval(b->left);
             auto right = eval(b->right);
 
-        // arithmetic on numbers
+            // arithmetic on numbers
             if (holds_alternative<double>(left) && holds_alternative<double>(right)) {
                 double l = get<double>(left);
                 double r = get<double>(right);
@@ -719,16 +829,35 @@ private:
         return 0.0; // fallback
     }
 
-    string toString(const variant<double,string>& val) {
+    string toString(const variant<double, string, vector<variant<double, string>>>& val) {
         if (holds_alternative<double>(val)) {
             double num = get<double>(val);
             if (num == (int)num) {
                 return to_string((int)num); // no decimals if whole number
             }
             return to_string(num);
-        } else {
+        } else if (holds_alternative<string>(val)) {
             return get<string>(val);
+        } else if (holds_alternative<vector<variant<double, string>>>(val)) {
+            string result = "[";
+            auto& arr = get<vector<variant<double, string>>>(val);
+            for (size_t i = 0; i < arr.size(); ++i) {
+                if (i > 0) result += ", ";
+                if (holds_alternative<double>(arr[i])) {
+                    double num = get<double>(arr[i]);
+                    if (num == (int)num) {
+                        result += to_string((int)num);
+                    } else {
+                        result += to_string(num);
+                    }
+                } else {
+                    result += get<string>(arr[i]);
+                }
+            }
+            result += "]";
+            return result;
         }
+        return "";
     }
 };
 
