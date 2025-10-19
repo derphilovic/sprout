@@ -601,9 +601,10 @@ private:
             auto& body = branch.second;
 
             if (!cond) {
-                // Else branch - execute all statements in else body
+                // Else branch - execute all statements in else body WITHOUT advancing the global index
                 for (auto& s : body) {
-                    currentIndex = exec(s, program, lineToIndex, currentIndex);
+                    size_t ignore = exec(s, program, lineToIndex, currentIndex);
+                    (void)ignore;
                 }
                 return currentIndex + 1;
             }
@@ -617,9 +618,10 @@ private:
             }
 
             if (truthy) {
-                // Execute all statements in if body
+                // Execute all statements in if body WITHOUT advancing the global index
                 for (auto& s : body) {
-                    currentIndex = exec(s, program, lineToIndex, currentIndex);
+                    size_t ignore = exec(s, program, lineToIndex, currentIndex);
+                    (void)ignore;
                 }
                 return currentIndex + 1;
             }
@@ -680,7 +682,12 @@ private:
     // Removed FloatExpr branch; NumberExpr already returns double
     // if (auto f = dynamic_pointer_cast<FloatExpr>(expr)) { ... }
         if (auto v = dynamic_pointer_cast<VarExpr>(expr)) {
-            return variables[v->name];
+            // STRICT LOOKUP: do not default-initialize missing variables
+            auto it = variables.find(v->name);
+            if (it == variables.end()) {
+                throw runtime_error("Undefined variable: " + v->name);
+            }
+            return it->second;
         }
         if (auto b = dynamic_pointer_cast<BinaryExpr>(expr)) {
             auto left = eval(b->left);
