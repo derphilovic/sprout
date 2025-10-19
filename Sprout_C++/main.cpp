@@ -7,13 +7,15 @@
 #include <sstream>
 #include <fstream>
 #include <filesystem>
+#include <unordered_map>
 
 using namespace std;
 
 // All possible token types in Sprout
 enum class TokenType {
     // Keywords
-    INT, STR, PRINT, INPUT, IF, ELSE, JUMP, BREAK,
+    INT, STR, FLOAT,
+    PRINT, INPUT, IF, ELSE, JUMP, BREAK,
 
     // Identifiers / literals
     IDENT, NUMBER, STRING,
@@ -105,6 +107,7 @@ private:
             while (isalnum(peek())) word += advance();
             if (word == "int")   return makeToken(TokenType::INT, word);
             if (word == "str")   return makeToken(TokenType::STR, word);
+            if (word == "float") return makeToken(TokenType::FLOAT, word);
             if (word == "print") return makeToken(TokenType::PRINT, word);
             if (word == "input") return makeToken(TokenType::INPUT, word);
             if (word == "if")    return makeToken(TokenType::IF, word);
@@ -118,6 +121,11 @@ private:
         if (isdigit(c)) {
             string num;
             while (isdigit(peek())) num += advance();
+            // Support optional fractional part: digits '.' digits
+            if (peek() == '.' && (pos + 1) < src.size() && isdigit(src[pos + 1])) {
+                num += advance(); // consume '.'
+                while (isdigit(peek())) num += advance();
+            }
             return makeToken(TokenType::NUMBER, num);
         }
 
@@ -175,11 +183,6 @@ private:
         return Token{type, text, line};
     }
 };
-
-#include <memory>
-#include <variant>
-#include <vector>
-using namespace std;
 
 // Forward declarations
 struct Expr;
@@ -320,6 +323,7 @@ private:
     StmtPtr parseStmt() {
         if (match(TokenType::INT))   return parseDecl("int");
         if (match(TokenType::STR))   return parseDecl("str");
+        if (match(TokenType::FLOAT)) return parseDecl("float");
         if (match(TokenType::PRINT)) return parsePrint();
         if (match(TokenType::INPUT)) return parseInput();
         if (match(TokenType::IF))    return parseIf();
@@ -470,6 +474,8 @@ private:
             return make_shared<NumberExpr>(stod(tok.text));
         if (tok.type == TokenType::STRING)
             return make_shared<StringExpr>(tok.text);
+        // Do not treat 'float' keyword as a literal
+        // if (tok.type == TokenType::FLOAT) ...  // removed
         if (tok.type == TokenType::IDENT)
             return make_shared<VarExpr>(tok.text);
 
@@ -483,10 +489,6 @@ private:
         return nullptr;
     }
 };
-#include <unordered_map>
-#include <iostream>
-#include <variant>
-
 /* =====================
    INTERPRETER
    - walks the AST
@@ -641,6 +643,8 @@ private:
         if (auto s = dynamic_pointer_cast<StringExpr>(expr)) {
             return s->value;
         }
+    // Removed FloatExpr branch; NumberExpr already returns double
+    // if (auto f = dynamic_pointer_cast<FloatExpr>(expr)) { ... }
         if (auto v = dynamic_pointer_cast<VarExpr>(expr)) {
             return variables[v->name];
         }
@@ -648,7 +652,7 @@ private:
             auto left = eval(b->left);
             auto right = eval(b->right);
 
-            // arithmetic on numbers
+        // arithmetic on numbers
             if (holds_alternative<double>(left) && holds_alternative<double>(right)) {
                 double l = get<double>(left);
                 double r = get<double>(right);
@@ -663,7 +667,6 @@ private:
                 if (b->op == ">=") return (l >= r) ? 1.0 : 0.0;
                 if (b->op == "!=") return (l != r) ? 1.0 : 0.0;
             }
-
 
             // string concatenation with +
             if (b->op == "+") {
