@@ -15,5 +15,6 @@ print : readcontents[i]
 i = i + 1
 jump : 11
 ;
+write : readcontents, "jam.spt"
 print : x
 input : x, "exit?"

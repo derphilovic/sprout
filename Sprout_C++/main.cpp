@@ -17,7 +17,7 @@ enum class TokenType {
     // Keywords
     INT, STR, FLOAT, ARRAY,
     PRINT, INPUT, IF, ELSE, JUMP, BREAK, RANDOM, LENGTH,
-    READ,
+    READ, WRITE,
 
     // Identifiers / literals
     IDENT, NUMBER, STRING,
@@ -121,6 +121,7 @@ private:
             if (word == "random") return makeToken(TokenType::RANDOM, word);
             if (word == "read")   return makeToken(TokenType::READ, word);
             if (word == "len") return makeToken(TokenType::LENGTH, word);
+            if (word == "write") return makeToken(TokenType::WRITE, word);
             return makeToken(TokenType::IDENT, word);
         }
 
@@ -319,6 +320,12 @@ struct LengthStmt : Stmt {
     LengthStmt(string v, string a, int l) : varName(move(v)), ArrayName(move(a)) { line = l; }
 };
 
+struct WriteStmt : Stmt {
+    string ArrayName;
+    string fileName;
+    WriteStmt(string a, string f, int l) : ArrayName(move(a)), fileName(move(f)) { line = l; }
+};
+
 class Parser {
     vector<Token> tokens;
     size_t pos;
@@ -381,6 +388,7 @@ private:
         if (match(TokenType::RANDOM)) return parseRandom();
         if (match(TokenType::READ))   return parseRead();
         if (match(TokenType::LENGTH)) return parseLength();
+        if (match(TokenType::WRITE)) return parseWrite();
 
         // Otherwise → assignment
         return parseAssign();
@@ -478,6 +486,15 @@ private:
         match(TokenType::COMMA);
         Token arrayName = advance();
         return make_shared<LengthStmt>(varName.text, arrayName.text, lengthTok.line);
+    }
+
+    StmtPtr parseWrite() {
+        Token writeTok = tokens[pos-1];
+        match(TokenType::COLON);
+        Token arrayName = advance();
+        match(TokenType::COMMA);
+        Token fileName = advance();
+        return make_shared<WriteStmt>(arrayName.text, fileName.text, writeTok.line);
     }
 
     StmtPtr parseIf() {
@@ -681,6 +698,10 @@ private:
             execLength(l);
             return currentIndex + 1;
         }
+        else if (auto w = dynamic_pointer_cast<WriteStmt>(stmt)) {
+            execWrite(w);
+            return currentIndex + 1;
+        }
         else {
             throw runtime_error("Unknown statement type");
         }
@@ -808,6 +829,33 @@ private:
         auto& array = get<vector<variant<double, string>>>(it->second);
         double len = array.size();
         variables[stmt->varName] = len;
+    }
+
+    void execWrite(const shared_ptr<WriteStmt>& stmt) {
+        // Look up the array variable
+        auto it = variables.find(stmt->ArrayName);
+        if (it == variables.end()) {
+            throw runtime_error("Undefined variable: " + stmt->ArrayName);
+        }
+        vector<variant<double, string>> arr = get<vector<variant<double, string>>>(it->second);
+
+        fstream file(stmt->fileName);
+        if (!file.is_open()) {
+            throw runtime_error("Cannot open file " + stmt->fileName);
+        }
+        string line;
+        for (auto s : arr) {
+            string temp;
+            if (holds_alternative<double>(s)) {
+                temp = std::to_string(get<double>(s));
+            }
+            else if (holds_alternative<string>(s)) {
+                temp = get<string>(s);
+            }
+            file << temp << "\n";
+        }
+
+        file.close();
     }
 
     // === Expression Evaluation ===
