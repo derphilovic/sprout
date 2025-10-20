@@ -14,10 +14,10 @@ using namespace std;
 
 // All possible token types in Sprout
 enum class TokenType {
-    // Keywords
+    // Keywords (4 vars, 8 standard functions and 4 file functions)
     INT, STR, FLOAT, ARRAY,
-    PRINT, INPUT, IF, ELSE, JUMP, BREAK, RANDOM, LENGTH,
-    READ, WRITE,
+    PRINT, INPUT, IF, ELSE, JUMP, BREAK, RANDOM, LENGTH, ELIF,
+    READ, WRITE, MAKEFILE, DELFILE,
 
     // Identifiers / literals
     IDENT, NUMBER, STRING,
@@ -122,6 +122,9 @@ private:
             if (word == "read")   return makeToken(TokenType::READ, word);
             if (word == "len") return makeToken(TokenType::LENGTH, word);
             if (word == "write") return makeToken(TokenType::WRITE, word);
+            if (word == "newfile") return makeToken(TokenType::MAKEFILE, word);
+            if (word == "delfile") return makeToken(TokenType::DELFILE, word);
+            if (word == "elif") return makeToken(TokenType::ELIF, word);
             return makeToken(TokenType::IDENT, word);
         }
 
@@ -337,6 +340,16 @@ struct WriteStmt : Stmt {
     WriteStmt(string a, string f, int l) : ArrayName(move(a)), fileName(move(f)) { line = l; }
 };
 
+struct MakefileStmt : Stmt {
+    string filename;
+    MakefileStmt(string f, int l) : filename(move(f)) { line = l; }
+};
+
+struct DelfileStmt : Stmt {
+    string filename;
+    DelfileStmt(string f, int l) : filename(move(f)) { line = l; }
+};
+
 class Parser {
     vector<Token> tokens;
     size_t pos;
@@ -400,6 +413,9 @@ private:
         if (match(TokenType::READ))   return parseRead();
         if (match(TokenType::LENGTH)) return parseLength();
         if (match(TokenType::WRITE)) return parseWrite();
+        if (match(TokenType::MAKEFILE)) return parseMakefile();
+        if (match(TokenType::DELFILE)) return parseDelfile();
+        if (match(TokenType::ELIF)) return parseIf();
 
         // Otherwise → assignment
         return parseAssign();
@@ -519,6 +535,20 @@ private:
         return make_shared<WriteStmt>(arrayName.text, fileName.text, writeTok.line);
     }
 
+    StmtPtr parseMakefile() {
+        Token makefileTok = tokens[pos-1];
+        match(TokenType::COLON);
+        Token filename = advance();
+        return make_shared<MakefileStmt>(filename.text, makefileTok.line);
+    }
+
+    StmtPtr parseDelfile() {
+        Token delfileTok = tokens[pos-1];
+        match(TokenType::COLON);
+        Token filename = advance();
+        return make_shared<DelfileStmt>(filename.text, delfileTok.line);
+    }
+
     StmtPtr parseIf() {
         Token ifTok = tokens[pos-1]; // Get if token for line number
         auto node = make_shared<IfStmt>(ifTok.line);
@@ -539,6 +569,20 @@ private:
 
         // consume optional ';' that terminates the if-body
         match(TokenType::SEMICOLON);
+
+        //optional elif
+        if (match(TokenType::ELIF)) {
+            match(TokenType::LPAREN);
+            ExprPtr cond = parseExpr();
+            match(TokenType::RPAREN);
+            match(TokenType::COLON);
+            vector<StmtPtr> body;
+            while (!check(TokenType::SEMICOLON) &&
+                   !check(TokenType::ELSE) &&
+                   !check(TokenType::END_OF_FILE)) {
+                body.push_back(parseStmt());
+            }
+        }
 
         // optional else
         if (match(TokenType::ELSE)) {
@@ -726,6 +770,14 @@ private:
         }
         else if (auto w = dynamic_pointer_cast<WriteStmt>(stmt)) {
             execWrite(w);
+            return currentIndex + 1;
+        }
+        else if (auto m = dynamic_pointer_cast<MakefileStmt>(stmt)) {
+            execMakefile(m);
+            return currentIndex + 1;
+        }
+        else if (auto d = dynamic_pointer_cast<DelfileStmt>(stmt)) {
+            execDelfile(d);
             return currentIndex + 1;
         }
         else {
@@ -919,6 +971,23 @@ private:
         }
 
         file.close();
+    }
+
+    void execMakefile(const shared_ptr<MakefileStmt>& stmt) {
+        string filename;
+        filename = stmt->filename;
+        ofstream file(filename);
+        if (!file.is_open()) {
+            cout << "Cannot create file" + filename + "\n";
+        }
+        file << std::endl;
+        file.close();
+    }
+
+    void execDelfile(const shared_ptr<DelfileStmt>& stmt) {
+        string filename;
+        filename = stmt->filename;
+        remove(filename.c_str());
     }
 
     // === Expression Evaluation ===

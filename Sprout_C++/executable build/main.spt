@@ -1,11 +1,14 @@
 int i = 0
 int l = 0
+delfile : "secret.txt"
+input : i, "Enter a number to continue: "
+newfile : "secret.txt"
 array myArray = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,)
 len : l, myArray
 if i < l:
 myArray[i] = i * 5 + 2.3
 print : myArray[i]
 i = i + 1
-jump : 5
+jump : 7
 ;
 write : myArray, "secret.txt"
