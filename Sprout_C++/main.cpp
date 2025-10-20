@@ -229,6 +229,8 @@ struct ArrayAccessExpr : Expr {
     ArrayAccessExpr(string name, ExprPtr idx) : arrayName(move(name)), index(move(idx)) {}
 };
 
+
+
 struct VarExpr : Expr {
     string name;
     VarExpr(string n) : name(move(n)) {}
@@ -272,6 +274,15 @@ struct AssignStmt : Stmt {
     ExprPtr expr;
     AssignStmt(string n, ExprPtr e, int l)
         : name(move(n)), expr(move(e)) { line = l; }
+};
+
+// Add a new statement type for array element assignment
+struct ArrayAssignStmt : Stmt {
+    string arrayName;
+    ExprPtr index;
+    ExprPtr expr;
+    ArrayAssignStmt(string name, ExprPtr idx, ExprPtr e, int l)
+        : arrayName(move(name)), index(move(idx)), expr(move(e)) { line = l; }
 };
 
 struct PrintStmt : Stmt {
@@ -438,6 +449,17 @@ private:
 
     StmtPtr parseAssign() {
         Token nameTok = advance(); // Get name token for line number
+        
+        // Check if this is array element assignment: name[index] = value
+        if (match(TokenType::LBRACKET)) {
+            ExprPtr index = parseExpr();
+            match(TokenType::RBRACKET);
+            match(TokenType::EQ);
+            ExprPtr expr = parseExpr();
+            return make_shared<ArrayAssignStmt>(nameTok.text, index, expr, nameTok.line);
+        }
+        
+        // Regular variable assignment: name = value
         match(TokenType::EQ);
         ExprPtr expr = parseExpr();
         return make_shared<AssignStmt>(nameTok.text, expr, nameTok.line);
@@ -669,6 +691,10 @@ private:
             execAssign(a);
             return currentIndex + 1;
         }
+        else if (auto aa = dynamic_pointer_cast<ArrayAssignStmt>(stmt)) {
+            execArrayAssign(aa);
+            return currentIndex + 1;
+        }
         else if (auto p = dynamic_pointer_cast<PrintStmt>(stmt)) {
             execPrint(p);
             return currentIndex + 1;
@@ -750,6 +776,43 @@ private:
     void execAssign(const shared_ptr<AssignStmt>& stmt) {
         auto val = eval(stmt->expr);
         variables[stmt->name] = val;
+    }
+
+    void execArrayAssign(const shared_ptr<ArrayAssignStmt>& stmt) {
+        // Find the array variable
+        auto it = variables.find(stmt->arrayName);
+        if (it == variables.end()) {
+            throw runtime_error("Undefined array: " + stmt->arrayName);
+        }
+        
+        // Make sure it's actually an array
+        if (!holds_alternative<vector<variant<double, string>>>(it->second)) {
+            throw runtime_error("Variable " + stmt->arrayName + " is not an array");
+        }
+        
+        // Evaluate the index
+        auto indexVal = eval(stmt->index);
+        if (!holds_alternative<double>(indexVal)) {
+            throw runtime_error("Array index must be a number");
+        }
+        
+        int index = (int)get<double>(indexVal);
+        auto& array = get<vector<variant<double, string>>>(it->second);
+        
+        // Check bounds
+        if (index < 0 || index >= (int)array.size()) {
+            throw runtime_error("Array index out of bounds: " + to_string(index));
+        }
+        
+        // Evaluate the expression and assign to array element
+        auto val = eval(stmt->expr);
+        if (holds_alternative<double>(val)) {
+            array[index] = get<double>(val);
+        } else if (holds_alternative<string>(val)) {
+            array[index] = get<string>(val);
+        } else {
+            throw runtime_error("Cannot assign array to array element");
+        }
     }
 
     void execPrint(const shared_ptr<PrintStmt>& stmt) {
