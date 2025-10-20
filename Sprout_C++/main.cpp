@@ -407,6 +407,7 @@ private:
         if (match(TokenType::PRINT))  return parsePrint();
         if (match(TokenType::INPUT))  return parseInput();
         if (match(TokenType::IF))     return parseIf();
+        if (match(TokenType::ELIF))   return parseElif();
         if (match(TokenType::JUMP))   return parseJump();
         if (match(TokenType::BREAK))  return parseBreak();
         if (match(TokenType::RANDOM)) return parseRandom();
@@ -415,7 +416,6 @@ private:
         if (match(TokenType::WRITE)) return parseWrite();
         if (match(TokenType::MAKEFILE)) return parseMakefile();
         if (match(TokenType::DELFILE)) return parseDelfile();
-        if (match(TokenType::ELIF)) return parseIf();
 
         // Otherwise → assignment
         return parseAssign();
@@ -549,6 +549,44 @@ private:
         return make_shared<DelfileStmt>(filename.text, delfileTok.line);
     }
 
+    StmtPtr parseElif() {
+        Token elifTok = tokens[pos-1]; // Get elif token for line number
+        auto node = make_shared<IfStmt>(elifTok.line);
+        vector<pair<ExprPtr, vector<StmtPtr>>> branches;
+
+        // elif (...)
+        match(TokenType::LPAREN);
+        ExprPtr cond = parseExpr();
+        match(TokenType::RPAREN);
+        match(TokenType::COLON);
+        vector<StmtPtr> body;
+        while (!check(TokenType::SEMICOLON) &&
+               !check(TokenType::ELSE) &&
+               !check(TokenType::END_OF_FILE)) {
+            body.push_back(parseStmt());
+        }
+        branches.push_back({cond, body});
+
+        // consume optional ';' that terminates the elif-body
+        match(TokenType::SEMICOLON);
+
+        // optional else
+        if (match(TokenType::ELSE)) {
+            match(TokenType::COLON);
+            vector<StmtPtr> elseBody;
+            while (!check(TokenType::SEMICOLON) && !check(TokenType::END_OF_FILE)) {
+                elseBody.push_back(parseStmt());
+            }
+            branches.push_back({nullptr, elseBody});
+
+            // consume optional ';' that terminates the else-body
+            match(TokenType::SEMICOLON);
+        }
+
+        node->branches = move(branches);
+        return node;
+    }
+
     StmtPtr parseIf() {
         Token ifTok = tokens[pos-1]; // Get if token for line number
         auto node = make_shared<IfStmt>(ifTok.line);
@@ -570,21 +608,7 @@ private:
         // consume optional ';' that terminates the if-body
         match(TokenType::SEMICOLON);
 
-        //optional elif
-        if (match(TokenType::ELIF)) {
-            match(TokenType::LPAREN);
-            ExprPtr cond = parseExpr();
-            match(TokenType::RPAREN);
-            match(TokenType::COLON);
-            vector<StmtPtr> body;
-            while (!check(TokenType::SEMICOLON) &&
-                   !check(TokenType::ELSE) &&
-                   !check(TokenType::END_OF_FILE)) {
-                body.push_back(parseStmt());
-            }
-        }
-
-        // optional else
+        // optional else (only if no elif follows)
         if (match(TokenType::ELSE)) {
             match(TokenType::COLON);
             vector<StmtPtr> elseBody;
@@ -1073,6 +1097,18 @@ private:
                 if (b->op == "<=") return (l <= r) ? 1.0 : 0.0;
                 if (b->op == ">=") return (l >= r) ? 1.0 : 0.0;
                 if (b->op == "!=") return (l != r) ? 1.0 : 0.0;
+            }
+
+            // string comparisons
+            if (holds_alternative<string>(left) && holds_alternative<string>(right)) {
+                string l = get<string>(left);
+                string r = get<string>(right);
+                if (b->op == "==") return (l == r) ? 1.0 : 0.0;
+                if (b->op == "!=") return (l != r) ? 1.0 : 0.0;
+                if (b->op == "<") return (l < r) ? 1.0 : 0.0;
+                if (b->op == ">") return (l > r) ? 1.0 : 0.0;
+                if (b->op == "<=") return (l <= r) ? 1.0 : 0.0;
+                if (b->op == ">=") return (l >= r) ? 1.0 : 0.0;
             }
 
             // string concatenation with +

@@ -16,5 +16,17 @@ i = i + 1
 jump : 11
 ;
 write : readcontents, "jam.spt"
+
+str name = ""
+input : name, "name?"
+if (name == "exit"):
+break
+;
+elif (name == "hello"):
+print : "hello"
+;
+else:
+print : "what?"
+;
 print : x
 input : x, "exit?"
